@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 using System.Linq;
 using xTile;
 using xTile.Dimensions;
@@ -22,7 +23,7 @@ namespace TMXTile
 
         public static bool IsImageLayer(this Layer layer)
         {
-            if (layer.Properties.TryGetValue<bool>("@ImageLayer", out PropertyValue value))
+            if (layer.Properties.TryGetParsed("@ImageLayer", out bool value))
                 return value;
 
             return false;
@@ -30,7 +31,7 @@ namespace TMXTile
 
         public static void MakeImageLayer(this Layer layer)
         {
-            layer.Properties["@ImageLayer"] = true;
+            layer.Properties["@ImageLayer"] = true.ToString();
         }
 
         public static TileSheet GetTileSheetForImageLayer(this Layer layer)
@@ -38,7 +39,7 @@ namespace TMXTile
             if (!layer.IsImageLayer())
                 return null;
 
-            if (layer.Properties.TryGetValue<string>("@ImageLayerTileSheet", out PropertyValue value) && layer.Map.TileSheets.FirstOrDefault(t => t.Id == value) is TileSheet ts)
+            if (layer.Properties.TryGetValue("@ImageLayerTileSheet", out string value) && layer.Map.TileSheets.FirstOrDefault(t => t.Id == value) is TileSheet ts)
                 return ts;
 
             return null;
@@ -72,7 +73,7 @@ namespace TMXTile
 
         public static float GetOpacity(this Layer layer)
         {
-            if (layer.Properties.TryGetValue<float>("@Opacity", out PropertyValue value))
+            if (layer.Properties.TryGetParsed("@Opacity", out float value))
                 return value;
 
             return 1f;
@@ -80,7 +81,7 @@ namespace TMXTile
 
         public static float GetOpacity(this Tile tile)
         {
-            if (tile.Properties.TryGetValue<float>("@Opacity", out PropertyValue value))
+            if (tile.Properties.TryGetParsed("@Opacity", out float value))
                 return value;
 
             return 1f;
@@ -88,12 +89,12 @@ namespace TMXTile
 
         public static void SetOpacity(this Layer layer, float opacity)
         {
-            layer.Properties["@Opacity"] = opacity;
+            layer.Properties["@Opacity"] = opacity.ToString(CultureInfo.InvariantCulture);
         }
 
         public static void SetOpacity(this Tile tile, float opacity)
         {
-            tile.Properties["@Opacity"] = opacity;
+            tile.Properties["@Opacity"] = opacity.ToString(CultureInfo.InvariantCulture);
         }
 
         public static TMXColor GetColor(this Layer layer)
@@ -128,7 +129,7 @@ namespace TMXTile
 
         public static int GetRotationValue(this Tile tile)
         {
-            if (tile.Properties.TryGetValue<int>("@Rotation", out PropertyValue value))
+            if (tile.Properties.TryGetParsed("@Rotation", out int value))
                 return value;
 
             return 0;
@@ -136,7 +137,7 @@ namespace TMXTile
 
         public static void SetRotationValue(this Tile tile, int rotation)
         {
-            tile.Properties["@Rotation"] = rotation;
+            tile.Properties["@Rotation"] = rotation.ToString();
         }
 
         public static float GetRotation(this Tile tile)
@@ -152,7 +153,7 @@ namespace TMXTile
 
         public static int GetFlip(this Tile tile)
         {
-            if (tile.Properties.TryGetValue<int>("@Flip", out PropertyValue value))
+            if (tile.Properties.TryGetParsed("@Flip", out int value))
                 return value;
 
             return 0;
@@ -160,7 +161,7 @@ namespace TMXTile
 
         public static void SetFlip(this Tile tile, int flip)
         {
-            tile.Properties["@Flip"] = flip;
+            tile.Properties["@Flip"] = flip.ToString();
         }
 
 
@@ -183,7 +184,7 @@ namespace TMXTile
 
         public static TMXColor GetColorFromProperty(this IPropertyCollection collection, string key)
         {
-            if (collection.TryGetValue<string>(key, out PropertyValue value))
+            if (collection.TryGetValue(key, out string value))
                 return TMXColor.FromString(value);
 
             return null;
@@ -194,10 +195,10 @@ namespace TMXTile
             int x = 0;
             int y = 0;
 
-            if (collection.TryGetValue<int>("@OffsetX", out PropertyValue xValue))
+            if (collection.TryGetParsed("@OffsetX", out int xValue))
                 x = xValue;
 
-            if (collection.TryGetValue<int>("@OffsetY", out PropertyValue yValue))
+            if (collection.TryGetParsed("@OffsetY", out int yValue))
                 y = yValue;
 
             return new Location(
@@ -208,21 +209,35 @@ namespace TMXTile
 
         public static void SetOffsetProperties(this IPropertyCollection collection, Location offset)
         {
-            collection["@OffsetX"] = offset.X;
-            collection["@OffsetY"] = offset.Y;
+            collection["@OffsetX"] = offset.X.ToString();
+            collection["@OffsetY"] = offset.Y.ToString();
         }
 
-        public static bool TryGetValue<T>(this IPropertyCollection collection, string key, out PropertyValue value)
+        public static bool TryGetValue<T>(this IPropertyCollection collection, string key, Func<string, T> parse, out T value)
         {
-            if (collection.TryGetValue(key, out PropertyValue prop)
-                && prop.Type.IsAssignableFrom(typeof(T)))
+            if (collection.TryGetValue(key, out string raw))
             {
-                value = prop;
+                value = parse(raw);
                 return true;
             }
 
-            value = null;
+            value = default;
             return false;
+        }
+
+        public static bool TryGetParsed(this IPropertyCollection collection, string key, out bool value)
+        {
+            return collection.TryGetValue(key, bool.Parse, out value);
+        }
+
+        public static bool TryGetParsed(this IPropertyCollection collection, string key, out float value)
+        {
+            return collection.TryGetValue(key, float.Parse, out value);
+        }
+
+        public static bool TryGetParsed(this IPropertyCollection collection, string key, out int value)
+        {
+            return collection.TryGetValue(key, int.Parse, out value);
         }
 
         public static DrawInstructions GetDrawInstructions(this Tile tile)

@@ -1,15 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security.AccessControl;
 using System.Xml;
 using xTile;
 using xTile.Dimensions;
-using xTile.Display;
 using xTile.Format;
 using xTile.Layers;
-using xTile.ObjectModel;
 using xTile.Tiles;
 
 namespace TMXTile
@@ -177,8 +175,8 @@ namespace TMXTile
                 };
 
 
-                tileSheet.Properties["@FirstGid"] = (int)tileSet.Firstgid;
-                tileSheet.Properties["@LastGid"] = (int)tileSet.Firstgid + tileSet.Tilecount - 1;
+                tileSheet.Properties["@FirstGid"] = tileSet.Firstgid.ToString();
+                tileSheet.Properties["@LastGid"] = (tileSet.Firstgid + (ulong)tileSet.Tilecount - 1).ToString();
                 if (tileSet.Tiles != null)
                     foreach (var tile in tileSet.Tiles.Where(t => t.Properties != null))
                         foreach (var prop in tile.Properties)
@@ -347,8 +345,8 @@ namespace TMXTile
 
             foreach (TileSheet tileSheet in layer.Map.TileSheets)
             {
-                UInt32 property1 = (UInt32)tileSheet.Properties["@FirstGid"];
-                UInt32 property2 = (UInt32)tileSheet.Properties["@LastGid"];
+                uint property1 = uint.Parse(tileSheet.Properties["@FirstGid"]);
+                uint property2 = uint.Parse(tileSheet.Properties["@LastGid"]);
                 if (gid >= property1 && gid <= property2)
                 {
                     selectedTileSheet = tileSheet;
@@ -558,7 +556,7 @@ namespace TMXTile
 
                 for(int i = 0; i < tileSheet.TileCount; i++)
                 {
-                    foreach (KeyValuePair<string, PropertyValue> property in tileSheet.TileIndexProperties[i])
+                    foreach (KeyValuePair<string, string> property in tileSheet.TileIndexProperties[i])
                     {
                         var tmxProp = new TMXProperty() { Name = property.Key, StringValue = property.Value.ToString(), Type = GetPropertyType(property.Value) };
                         var tile = tiledTileSet1.Tiles.FirstOrDefault(tiledTile => tiledTile.Id == i);
@@ -599,11 +597,11 @@ namespace TMXTile
                     foreach (var prop in layer.Properties)
                     {
                         if (prop.Key == "@OffsetX")
-                            imageLayer.Offsetx = prop.Value;
+                            imageLayer.Offsetx = int.Parse(prop.Value);
                         else if (prop.Key == "@OffsetY")
-                            imageLayer.Offsety = prop.Value;
+                            imageLayer.Offsety = int.Parse(prop.Value);
                         else if (prop.Key == "@Opacity")
-                            imageLayer.Opacity = prop.Value;
+                            imageLayer.Opacity = int.Parse(prop.Value);
                         else
                             imageProps.Add(new TMXProperty() { Name = prop.Key, StringValue = prop.Value.ToString(), Type = GetPropertyType(prop.Value) });
                     }
@@ -630,11 +628,11 @@ namespace TMXTile
             var props = new List<TMXProperty>();
                 foreach (var prop in layer.Properties) {
                     if (prop.Key == "@OffsetX")
-                        tiledLayer1.Offsetx = prop.Value;
+                        tiledLayer1.Offsetx = int.Parse(prop.Value);
                     else if (prop.Key == "@OffsetY")
-                        tiledLayer1.Offsety = prop.Value;
+                        tiledLayer1.Offsety = int.Parse(prop.Value);
                     else if (prop.Key == "@Opacity")
-                        tiledLayer1.Opacity = prop.Value;
+                        tiledLayer1.Opacity = int.Parse(prop.Value);
                     else
                         props.Add(new TMXProperty() { Name = prop.Key, StringValue = prop.Value.ToString(), Type = GetPropertyType(prop.Value) });
                 }
@@ -703,7 +701,7 @@ namespace TMXTile
                     for (int index2 = 0; index2 < layer.LayerWidth; ++index2)
                     {
                         Tile tile = layer.Tiles[index2, index1];
-                        if ((tile != null ? tile.Properties : null) != null && tile.Properties.Any<KeyValuePair<string, PropertyValue>>())
+                        if (tile?.Properties != null && tile.Properties.Any())
                         {
                             TMXObject tiledObject = new TMXObject()
                             {
@@ -715,8 +713,8 @@ namespace TMXTile
                                 Height = FixedTileSize.Height
                             };
                             List<TMXProperty> props = new List<TMXProperty>();
-                            foreach (KeyValuePair<string, PropertyValue> property in tile.Properties)
-                                props.Add(new TMXProperty() { Name = property.Key, StringValue = property.Value.ToString(), Type = GetPropertyType(property.Value) });
+                            foreach (KeyValuePair<string, string> property in tile.Properties)
+                                props.Add(new TMXProperty { Name = property.Key, StringValue = property.Value, Type = GetPropertyType(property.Value) });
                             tiledObject.Properties = props.ToArray();
                             tiledObjectGroup.Objects.Add(tiledObject);
                             ++tiledMap.Nextobjectid;
@@ -727,34 +725,25 @@ namespace TMXTile
             tiledMap.Nextlayerid = (map.Layers.Count() * 2) + 1;
         }
 
-        internal PropertyValue GetPropertyValue(TMXProperty prop)
+        internal string GetPropertyValue(TMXProperty prop)
         {
             if (prop.Type == null)
                 return prop.StringValue;
 
-            switch (prop.Type.ToLower())
+            return prop.Type.ToLower() switch
             {
-                case "int": return prop.IntValue;
-                case "string": return prop.StringValue;
-                case "bool": return prop.BoolValue;
-                case "color": return prop.ColorValue.ToString();
-                case "float": return prop.FloatValue;
-                default: return prop.StringValue;
-            }
+                "int" => prop.IntValue.ToString(),
+                "string" => prop.StringValue,
+                "bool" => prop.BoolValue.ToString(),
+                "color" => prop.ColorValue.ToString(),
+                "float" => prop.FloatValue.ToString(CultureInfo.InvariantCulture),
+                _ => prop.StringValue
+            };
         }
 
-        internal string GetPropertyType(PropertyValue prop)
+        internal string GetPropertyType(string prop)
         {
-            if (prop.Type == typeof(float))
-                return "float";
-
-            if (prop.Type == typeof(int))
-                return "int";
-
-            if (prop.Type == typeof(bool))
-                return "bool";
-
-            string s = prop.ToString();
+            string s = prop;
             if (s.StartsWith("#") && s.Length == 7 && TMXColor.FromString(s).ToString() == s)
                 return "color";
 
