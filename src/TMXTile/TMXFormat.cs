@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Xml;
 using xTile;
 using xTile.Dimensions;
 using xTile.Format;
 using xTile.Layers;
+using xTile.ObjectModel;
 using xTile.Tiles;
 
 namespace TMXTile
@@ -174,13 +176,33 @@ namespace TMXTile
                     Margin = new Size(0)
                 };
 
+                if (!this.TryGetTileIndexPropertyCache(tileSheet, out var tileIndexCache, out string error))
+                {
+                    tileIndexCache = null;
+                    Console.WriteLine($"Exception: {error}.");
+                }
 
                 tileSheet.Properties["@FirstGid"] = tileSet.Firstgid.ToString();
                 tileSheet.Properties["@LastGid"] = (tileSet.Firstgid + (ulong)tileSet.Tilecount - 1).ToString();
                 if (tileSet.Tiles != null)
+                {
                     foreach (var tile in tileSet.Tiles.Where(t => t.Properties != null))
+                    {
                         foreach (var prop in tile.Properties)
-                            tileSheet.Properties[string.Format("@TileIndex@{0}@{1}", tile.Id, prop.Name)] = GetPropertyValue(prop);
+                        {
+                            tileSheet.Properties[$"@TileIndex@{tile.Id}@{prop.Name}"] = GetPropertyValue(prop);
+
+                            // custom for Stardew Valley: add to tile index property cache
+                            if (tileIndexCache != null)
+                            {
+                                if (!tileIndexCache.TryGetValue(tile.Id, out IPropertyCollection target))
+                                    tileIndexCache[tile.Id] = target = new PropertyCollection();
+
+                                target[prop.Name] = GetPropertyValue(prop);
+                            }
+                        }
+                    }
+                }
 
                 if (tileSet.Properties != null)
                     foreach (TMXProperty prop in tileSet.Properties)
@@ -374,6 +396,45 @@ namespace TMXTile
                 result.SetFlip(GetEffectForFlippedTile(flipped_horizontally, flipped_vertically, flipped_diagonally));
 
                 return result;
+        }
+
+        /// <summary>Try to get Stardew Valley's custom tile index property cache for a tilesheet.</summary>
+        /// <param name="tilesheet">The tilesheet instance.</param>
+        /// <param name="cache">The cache instance.</param>
+        /// <param name="error">The error phrase indicating why the cache field can't be loaded.</param>
+        /// <returns>Returns whether the cache was successfully loaded.</returns>
+        private bool TryGetTileIndexPropertyCache(TileSheet tilesheet, out IDictionary<int, IPropertyCollection> cache, out string error)
+        {
+            const string name = "tileIndexPropertyDictionary";
+
+            // get field
+            FieldInfo field = tilesheet.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (field == null)
+            {
+                cache = null;
+                error = $"failed to load the {nameof(TileSheet)}.{name} cache: field not found";
+                return false;
+            }
+
+            // get value
+            object raw = field.GetValue(tilesheet);
+            if (raw == null)
+            {
+                cache = null;
+                error = $"failed to load the {nameof(TileSheet)}.{name} cache: field is unexpectedly null";
+                return false;
+            }
+
+            // get with type
+            cache = raw as IDictionary<int, IPropertyCollection>;
+            if (cache == null)
+            {
+                error = $"failed to load the {nameof(TileSheet)}.{name} cache: field has type {raw.GetType().FullName} which isn't compatible with the expected type IDictionary<int, IPropertyCollection>";
+                return false;
+            }
+
+            error = null;
+            return true;
         }
 
         private static int GetEffectForFlippedTile(bool horizontal, bool vertical, bool diagonal)
