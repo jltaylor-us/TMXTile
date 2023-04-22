@@ -1,11 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <AssemblyName>TMXTile</AssemblyName>
     <RootNamespace>TMXTile</RootNamespace>
     <Version>1.5.9</Version>
-    <TargetFramework>net45</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <PlatformTarget>AnyCPU</PlatformTarget>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 
     <Authors>Platonymous</Authors>
 
@@ -15,7 +15,7 @@
 
     <PackageProjectUrl>https://https://github.com/Platonymous/TMXTile/</PackageProjectUrl>
 
-      <PackageIcon />
+    <PackageIcon />
 
     <PackageIconUrl>https://raw.githubusercontent.com/Platonymous/TMXTile/master/assets/tmxtiled-icon.png</PackageIconUrl>
 
@@ -23,9 +23,7 @@
 
     <RepositoryType>GitHub</RepositoryType>
 
-    <PackageLicenseExpression></PackageLicenseExpression>
-
-    <PackageLicenseUrl>https://raw.githubusercontent.com/Platonymous/TMXTile/master/LICENSE</PackageLicenseUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
 
     <PackageId>Platonymous.TMXTile</PackageId>
 
@@ -33,10 +31,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="xTile">
-      <HintPath>lib\xTile.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
+    <Reference Include="xTile" HintPath="lib\xTile.dll" Private="false" />
   </ItemGroup>
 </Project>
