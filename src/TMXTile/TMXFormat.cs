@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.AccessControl;
@@ -20,6 +21,9 @@ namespace TMXTile
         const UInt32 FLIPPED_VERTICALLY_FLAG = 0x40000000;
         const UInt32 FLIPPED_DIAGONALLY_FLAG = 0x20000000;
 
+        internal Stopwatch totalParseStopwatch = new();
+        internal Stopwatch totalLoadStopwatch = new();
+
         public string Name => "Tiled XML Format";
 
         public string FileExtensionDescriptor => "Tiled XML Map Files (*.tmx) **";
@@ -36,19 +40,21 @@ namespace TMXTile
         public TMXFormat(int tileWidth, int tileHeight)
             : this(new Size(tileWidth, tileHeight))
         {
-
+            Console.WriteLine("created TMXFormat object");
         }
 
         public TMXFormat(int tileWidth, int tileHeight, Action<Layer, Rectangle> drawImageLayer)
             : this(tileWidth,tileHeight)
         {
             DrawImageLayer = drawImageLayer;
+            Console.WriteLine("created TMXFormat object");
         }
 
 
         public TMXFormat(int tileWidth, int tileHeight, int tileSizeMultiplierX, int tileSizeMultiplierY)
             : this(new Size(tileWidth, tileHeight), new Size(tileSizeMultiplierX, tileSizeMultiplierY))
         {
+            Console.WriteLine("created TMXFormat object");
 
         }
 
@@ -56,12 +62,14 @@ namespace TMXTile
             : this(tileWidth,tileHeight, tileSizeMultiplierX, tileSizeMultiplierY)
         {
             DrawImageLayer = drawImageLayer;
+            Console.WriteLine("created TMXFormat object");
         }
 
         public TMXFormat(Size fixedTilesize)
         {
             FixedTileSize = fixedTilesize;
             TileSizeMultiplier = new Size(1, 1);
+            Console.WriteLine("created TMXFormat object");
         }
 
         public TMXFormat(Size fixedTilesize, Size tileSizeMultiplier)
@@ -69,6 +77,7 @@ namespace TMXTile
             FixedTileSize = fixedTilesize;
             FixedTileSizeMultiplied = new Size(fixedTilesize.Width * tileSizeMultiplier.Width, fixedTilesize.Height * tileSizeMultiplier.Height);
             TileSizeMultiplier = tileSizeMultiplier;
+            Console.WriteLine("created TMXFormat object");
         }
 
         public CompatibilityReport DetermineCompatibility(Map map)
@@ -117,13 +126,31 @@ namespace TMXTile
         }
         public Map Load(Stream stream)
         {
+            Stopwatch sw = new();
+            sw.Start();
+            totalParseStopwatch.Start();
             TMXParser parser = new TMXParser();
             TMXMap tmxMap = parser.Parse(stream);
-            return Load(tmxMap);
+            totalParseStopwatch.Stop();
+            sw.Stop();
+            Console.WriteLine($"TMX load - parse took {sw.Elapsed.TotalMilliseconds}");
+            sw.Restart();
+            totalLoadStopwatch.Start();
+            var result = Load(tmxMap);
+            totalLoadStopwatch.Stop();
+            sw.Stop();
+            if (stream is FileStream fs) {
+                Console.WriteLine($"TMX loaded {fs.Name}");
+            }
+            Console.WriteLine($"TMX load - load took {sw.Elapsed.TotalMilliseconds}");
+            Console.WriteLine($"TMX total load time so far: {totalParseStopwatch.Elapsed.TotalMilliseconds} ms parsing, {totalLoadStopwatch.Elapsed.TotalMilliseconds} ms loading");
+            Console.WriteLine($"TMX load totals breakdown: props {loadSwProps.Elapsed.TotalMilliseconds}, tileSets {loadSwTileSets.Elapsed.TotalMilliseconds}, layers {loadSwLayers.Elapsed.TotalMilliseconds} (tiles {loadSwTile.Elapsed.TotalMilliseconds} - gid {loadSwTileGid.Elapsed.TotalMilliseconds} linq {loadSwTileLinq.Elapsed.TotalMilliseconds}), imageLayers {loadSwImageLayers.Elapsed.TotalMilliseconds}, Objects {loadSwObjects.Elapsed.TotalMilliseconds}");
+            return result;
         }
 
         public Map Load(string path)
         {
+            Console.WriteLine($"TMX load string");
             TMXParser parser = new TMXParser();
             TMXMap tmxMap = parser.Parse(path);
             return Load(tmxMap);
@@ -131,16 +158,23 @@ namespace TMXTile
 
         public Map Load(XmlReader reader)
         {
+            Console.WriteLine($"TMX load XmlReader");
             TMXParser parser = new TMXParser();
             TMXMap tmxMap = parser.Parse(reader);
             return Load(tmxMap);
         }
-        
+
+        internal Stopwatch loadSwProps = new();
+        internal Stopwatch loadSwTileSets = new();
+        internal Stopwatch loadSwLayers = new();
+        internal Stopwatch loadSwImageLayers = new();
+        internal Stopwatch loadSwObjects = new();
         public Map Load(TMXMap tmxMap)
         {
             Map map = new Map();
             if (tmxMap.Orientation != "orthogonal")
                 throw new Exception("Only orthogonal Tiled maps are supported.");
+            loadSwProps.Start();
             TMXProperty[] properties = GetOrdered(tmxMap.Properties);
             if (properties != null)
                 foreach (var prop in properties)
@@ -148,14 +182,23 @@ namespace TMXTile
                         map.Description = prop.StringValue;
                     else
                         map.Properties[prop.Name] = GetPropertyValue(prop);
+            loadSwProps.Stop();
 
             if (tmxMap.Backgroundcolor is TMXColor bg)
                 map.Properties["@BackgroundColor"] = bg.ToString();
 
-            LoadTileSets(tmxMap, ref map);
-            LoadLayers(tmxMap, ref map);
+            loadSwTileSets.Start();
+            var asdf = LoadTileSets(tmxMap, ref map);
+            loadSwTileSets.Stop();
+            loadSwLayers.Start();
+            LoadLayers(tmxMap, ref map, asdf);
+            loadSwLayers.Stop();
+            loadSwImageLayers.Start();
             LoadImageLayers(tmxMap, ref map);
+            loadSwImageLayers.Stop();
+            loadSwObjects.Start();
             LoadObjects(tmxMap, ref map);
+            loadSwObjects.Stop();
 
             return map;
         }
@@ -165,8 +208,9 @@ namespace TMXTile
             return props?.OrderBy(p => p?.Name[0] is char f && f.ToString().Equals(f.ToString().ToLower()) ? "B_" + p?.Name : "A_" + p?.Name).ToArray();
         }
 
-        public void LoadTileSets(TMXMap tmxMap, ref Map map)
+        public List<(TileSheet, int, int)> LoadTileSets(TMXMap tmxMap, ref Map map)
         {
+            List<(TileSheet, int, int)> result = new(tmxMap.Tilesets.Count);
             foreach (var tileSet in tmxMap.Tilesets)
             {
                 Size sheetSize = new Size(tileSet.Image.Width / tileSet.Tilewidth, tileSet.Image.Height / tileSet.Tileheight);
@@ -179,6 +223,7 @@ namespace TMXTile
 
                 tileSheet.Properties["@FirstGid"] = (int)tileSet.Firstgid;
                 tileSheet.Properties["@LastGid"] = (int)tileSet.Firstgid + tileSet.Tilecount - 1;
+                result.Add((tileSheet, (int)tileSet.Firstgid, (int)tileSet.Firstgid + tileSet.Tilecount - 1));
                 if (tileSet.Tiles != null)
                     foreach (var tile in tileSet.Tiles.Where(t => t.Properties != null))
                         foreach (var prop in tile.Properties)
@@ -190,9 +235,10 @@ namespace TMXTile
 
                 map.AddTileSheet(tileSheet);
             }
+            return result;
         }
 
-        public void LoadLayers(TMXMap tmxMap, ref Map map)
+        public void LoadLayers(TMXMap tmxMap, ref Map map, List<(TileSheet, int, int)> gids)
         {
             if (tmxMap.Layers == null)
                 return;
@@ -214,7 +260,7 @@ namespace TMXTile
                         Location origin = new Location(c.X, c.Y);
                         foreach (TMXTile t in c.Tiles)
                         {
-                            mapLayer.Tiles[origin] = LoadTile(mapLayer, tmxMap, t.Gid);
+                            mapLayer.Tiles[origin] = LoadTile(mapLayer, tmxMap, t.Gid, gids);
                             ++origin.X;
                             if (origin.X >= mapLayer.LayerWidth)
                             {
@@ -228,7 +274,7 @@ namespace TMXTile
                     Location origin = Location.Origin;
                     foreach (TMXTile t in layer.Data.Tiles)
                     {
-                        mapLayer.Tiles[origin] = LoadTile(mapLayer, tmxMap, t.Gid);
+                        mapLayer.Tiles[origin] = LoadTile(mapLayer, tmxMap, t.Gid, gids);
                         ++origin.X;
                         if (origin.X >= mapLayer.LayerWidth)
                         {
@@ -313,11 +359,14 @@ namespace TMXTile
         }
 
 
-
-        internal Tile LoadTile(Layer layer, TMXMap tmxMap, UInt32 gid)
+        internal Stopwatch loadSwTile = new();
+        internal Stopwatch loadSwTileGid = new();
+        internal Stopwatch loadSwTileLinq = new();
+        internal Tile LoadTile(Layer layer, TMXMap tmxMap, UInt32 gid, List<(TileSheet, int, int)> gids)
         {
             if (gid == 0)
                 return null;
+            loadSwTile.Start();
             TileSheet selectedTileSheet = null;
 
             int tileIndex = -1;
@@ -345,29 +394,60 @@ namespace TMXTile
                         FLIPPED_VERTICALLY_FLAG |
                         FLIPPED_DIAGONALLY_FLAG);
 
-            foreach (TileSheet tileSheet in layer.Map.TileSheets)
-            {
-                UInt32 property1 = (UInt32)tileSheet.Properties["@FirstGid"];
-                UInt32 property2 = (UInt32)tileSheet.Properties["@LastGid"];
-                if (gid >= property1 && gid <= property2)
-                {
-                    selectedTileSheet = tileSheet;
-                    tileIndex = (int)(gid - property1);
+            loadSwTileGid.Start();
+            foreach (var x in gids) {
+                if (gid >= x.Item2 && gid <= x.Item3) {
+                    selectedTileSheet = x.Item1;
+                    tileIndex = (int)(gid - x.Item2);
                     break;
                 }
             }
+            //foreach (TileSheet tileSheet in layer.Map.TileSheets)
+            //{
+            //    UInt32 property1 = (UInt32)tileSheet.Properties["@FirstGid"];
+            //    UInt32 property2 = (UInt32)tileSheet.Properties["@LastGid"];
+            //    if (gid >= property1 && gid <= property2)
+            //    {
+            //        selectedTileSheet = tileSheet;
+            //        tileIndex = (int)(gid - property1);
+            //        break;
+            //    }
+            //}
             if (selectedTileSheet == null)
                 throw new Exception(string.Format("Invalid tile gid: {0}", gid));
+            loadSwTileGid.Stop();
 
             Tile result = null;
 
-            if (tmxMap.Tilesets.Where(ts => ts.Name == selectedTileSheet.Id).FirstOrDefault() is TMXTileset tileset && tileset.Tiles.Where(t => t.Id == tileIndex).FirstOrDefault() is TMXTileSetTile tile && tile.Animations != null && tile.Animations.Count() > 0)
-            {
-                StaticTile[] array = tile.Animations.Select(frame => new StaticTile(layer, selectedTileSheet, BlendMode.Alpha, (int)frame.TileId)).ToArray();
-                result = new AnimatedTile(layer, array, tile.Animations[0].Duration);
+            loadSwTileLinq.Start();
+            TMXTileSetTile animationTile = null;
+            foreach (var ts in tmxMap.Tilesets) {
+                if (ts.Name == selectedTileSheet.Id) {
+                    foreach(var t in ts.Tiles) {
+                        if (t.Id == tileIndex) {
+                            if (t.Animations != null && t.Animations.Length > 0) {
+                                animationTile = t;
+                            }
+                            break;
+                        }
+                    }
+                    break;
+                }
             }
-            else
+            if (animationTile is not null) {
+                StaticTile[] array = Array.ConvertAll(animationTile.Animations, (Converter<TMXFrame, StaticTile>)(frame => new StaticTile(layer, selectedTileSheet, BlendMode.Alpha, (int)frame.TileId)));
+                result = new AnimatedTile(layer, array, animationTile.Animations[0].Duration);
+            } else
                 result = new StaticTile(layer, selectedTileSheet, BlendMode.Alpha, tileIndex);
+
+            //if (tmxMap.Tilesets.Where(ts => ts.Name == selectedTileSheet.Id).FirstOrDefault() is TMXTileset tileset && tileset.Tiles.Where(t => t.Id == tileIndex).FirstOrDefault() is TMXTileSetTile tile && tile.Animations != null && tile.Animations.Length > 0)
+            //{
+            //    StaticTile[] array = tile.Animations.Select(frame => new StaticTile(layer, selectedTileSheet, BlendMode.Alpha, (int)frame.TileId)).ToArray();
+            //    result = new AnimatedTile(layer, array, tile.Animations[0].Duration);
+            //}
+            //else
+            //    result = new StaticTile(layer, selectedTileSheet, BlendMode.Alpha, tileIndex);
+            loadSwTileLinq.Stop();
 
             if (result.GetRotationValue() == 0)
                 result.SetRotationValue(GetRotationForFlippedTile(flipped_horizontally, flipped_vertically, flipped_diagonally));
@@ -375,7 +455,8 @@ namespace TMXTile
             if (result.GetFlip() == 0)
                 result.SetFlip(GetEffectForFlippedTile(flipped_horizontally, flipped_vertically, flipped_diagonally));
 
-                return result;
+            loadSwTile.Stop();
+            return result;
         }
 
         private static int GetEffectForFlippedTile(bool horizontal, bool vertical, bool diagonal)
